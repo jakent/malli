@@ -81,6 +81,9 @@
   ([x] (-> x meta ::parent))
   ([x p] (vary-meta x assoc ::parent p)))
 
+(defn- -parent-schema [properties]
+  (reify Schema (-properties [_] properties)))
+
 (defn create-form [type properties children]
   (cond
     (and (seq properties) (seq children)) (into [type properties] children)
@@ -262,14 +265,11 @@
     [x (rest xs)]
     [nil xs]))
 
-(defn- -entry-schema [properties]
-  (reify Schema (-properties [_] properties)))
-
 (defn -parse-entry-syntax [ast options]
   (let [-parse (fn [[k ?p ?v :as e] f expand]
                  (let [[p ?s] (if (or (nil? ?p) (map? ?p)) [?p ?v] [nil ?p]), s (f k p ?s)]
                    (if expand [k p s] (->> (assoc (vec e) (dec (count e)) s) (keep identity) (vec)))))
-        children (->> ast (keep identity) (mapv #(-parse % (fn [_ p s] (-parent (schema s options) (-entry-schema p))) false)))
+        children (->> ast (keep identity) (mapv #(-parse % (fn [_ p s] (-parent (schema s options) (-parent-schema p))) false)))
         entries (->> children (mapv #(-parse % (fn [_ _ s] s) true)))
         forms (->> children (mapv #(-parse % (fn [_ _ s] (-form s)) false)))]
     {:children children
@@ -1030,6 +1030,16 @@
                                                                  'm/type type
                                                                  'm/children children
                                                                  'm/map-entries map-entries}})))
+
+(defn nested-properties
+  ([?schema]
+   (nested-properties ?schema nil))
+  ([?schema options]
+   (let [schema (schema ?schema options)]
+     (loop [s schema, p (-properties schema)]
+       (if-let [parent (-parent s)]
+         (recur parent (merge p (-properties parent))) p)))))
+
 ;;
 ;; Visitors
 ;;
