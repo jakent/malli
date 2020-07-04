@@ -35,7 +35,7 @@
 
 (deftest expand-key-test
   (are [schema expected]
-    (= expected (second (#'m/-expand-key schema nil identity)))
+    (= expected (second (#'m/-expand-entry schema nil)))
 
     [:x int?] nil
     [:x {:optional true} int?] {:optional true}

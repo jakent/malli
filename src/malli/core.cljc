@@ -268,9 +268,12 @@
     [x (rest xs)]
     [nil xs]))
 
-(defn- -expand-key [[k ?p ?v] options f]
+(defn- -entry-schema [properties]
+  (reify Schema (-properties [_] properties)))
+
+(defn- -expand-entry [[k ?p ?v] options]
   (let [[p v] (if (or (nil? ?p) (map? ?p)) [?p ?v] [nil ?p])]
-    [k p (f (schema v options))]))
+    [k p (-parent (schema v options) (-entry-schema p))]))
 
 (defn- -valid-child? [child]
   (or (== 2 (count child))
@@ -281,7 +284,7 @@
 (defn- -parse-map-entries [children options]
   (when-let [children (seq (remove -valid-child? children))]
     (fail! ::child-error {:children children}))
-  (->> children (mapv #(-expand-key % options identity))))
+  (->> children (mapv #(-expand-entry % options))))
 
 (defn ^:no-doc -map-map-entries [f entries]
   (mapv (comp #(update % (dec (count %)) f) vec (partial keep identity)) entries))
@@ -289,48 +292,14 @@
 (defn ^:no-doc required-map-entry? [[_ ?p]]
   (not (and (map? ?p) (true? (:optional ?p)))))
 
-(defn -entry-schema []
-  ^{:type ::into-schema}
-  (reify IntoSchema
-    (-into-schema [_ properties children options]
-      (when-not (= 1 (count children))
-        (fail! ::child-error {:type ::entry, :properties properties, :children children, :min 1, :max 1}))
-      (let [[schema :as children] (map #(schema % options) children)
-            form (create-form ::entry nil (map -form children))]
-        ^{:type ::schema}
-        (reify Schema
-          (-type [_] ::entry)
-          (-validator [_] (-validator schema))
-          (-explainer [_ path] (-explainer schema (conj path (-distance properties))))
-          (-transformer [this transformer method options]
-            (let [this-transformer (-value-transformer transformer this method options)
-                  child-transformer (-transformer schema transformer method options)
-                  build (fn [phase]
-                          (let [->this (phase this-transformer)
-                                ->child (phase child-transformer)]
-                            (if (and ->this ->child)
-                              (comp ->child ->this)
-                              (or ->this ->child))))]
-              {:enter (build :enter)
-               :leave (build :leave)}))
-          (-accept [this visitor in options]
-            (visitor this [(-accept schema visitor in options)] in options))
-          (-properties [_] properties)
-          (-options [_] options)
-          (-children [_] children)
-          (-form [_] form)
-          LensSchema
-          (-get [_ key default] (if (= 0 key) schema default))
-          (-set [_ key value] (if (= 0 key) (into-schema :maybe properties [value]) schema)))))))
-
 (defn -map-schema []
   ^{:type ::into-schema}
   (reify IntoSchema
     (-into-schema [_ {:keys [closed] :as properties} children options]
       (let [entries (-parse-map-entries children options)
-            children (-map-map-entries #(schema % options) children)
-            keyset (->> entries (map first) (set))
-            form (create-form :map properties (-map-map-entries -form children))]
+            form (create-form :map properties (-map-map-entries -form entries))
+            children (mapv last entries)
+            keyset (->> entries (map first) (set))]
         ^{:type ::schema}
         (reify Schema
           (-type [_] :map)
@@ -727,11 +696,11 @@
   ^{:type ::into-schema}
   (reify IntoSchema
     (-into-schema [_ properties children options]
-      (let [children (-map-map-entries #(schema % options) children)
-            entries (-parse-map-entries children options)
+      (let [entries (-parse-map-entries children options)
+            form (create-form :multi properties (-map-map-entries -form entries))
+            children (mapv last entries)
             dispatch (eval (:dispatch properties))
-            dispatch-map (->> (for [[d _ s] entries] [d s]) (into {}))
-            form (create-form :multi properties (-map-map-entries -form children))]
+            dispatch-map (->> (for [[d _ s] entries] [d s]) (into {}))]
         (when-not dispatch
           (fail! ::missing-property {:key :dispatch}))
         ^{:type ::schema}
@@ -1145,8 +1114,7 @@
    :string (-string-schema)
    :ref (-ref-schema)
    :schema (-schema-schema nil)
-   ::schema (-schema-schema {:raw true})
-   ::entry (-entry-schema)})
+   ::schema (-schema-schema {:raw true})})
 
 (defn default-schemas []
   (merge (predicate-schemas) (class-schemas) (comparator-schemas) (base-schemas)))
