@@ -77,6 +77,16 @@
   ([type data]
    (throw (ex-info (str type " " data) {:type type, :data data}))))
 
+(defn -ref2 []
+  (let [r* (atom nil)]
+    (fn
+      ([] (or @r* (fail! ::ref-not-set)))
+      ([x] (if-not @r* (reset! r* x) (fail! ::ref-set))))))
+
+(defn -parent
+  ([x] (-> x meta ::parent))
+  ([x p] (vary-meta x assoc ::parent p)))
+
 (defn create-form [type properties children]
   (cond
     (and (seq properties) (seq children)) (into [type properties] children)
@@ -278,6 +288,40 @@
 
 (defn ^:no-doc required-map-entry? [[_ ?p]]
   (not (and (map? ?p) (true? (:optional ?p)))))
+
+(defn -entry-schema []
+  ^{:type ::into-schema}
+  (reify IntoSchema
+    (-into-schema [_ properties children options]
+      (when-not (= 1 (count children))
+        (fail! ::child-error {:type ::entry, :properties properties, :children children, :min 1, :max 1}))
+      (let [[schema :as children] (map #(schema % options) children)
+            form (create-form ::entry nil (map -form children))]
+        ^{:type ::schema}
+        (reify Schema
+          (-type [_] ::entry)
+          (-validator [_] (-validator schema))
+          (-explainer [_ path] (-explainer schema (conj path (-distance properties))))
+          (-transformer [this transformer method options]
+            (let [this-transformer (-value-transformer transformer this method options)
+                  child-transformer (-transformer schema transformer method options)
+                  build (fn [phase]
+                          (let [->this (phase this-transformer)
+                                ->child (phase child-transformer)]
+                            (if (and ->this ->child)
+                              (comp ->child ->this)
+                              (or ->this ->child))))]
+              {:enter (build :enter)
+               :leave (build :leave)}))
+          (-accept [this visitor in options]
+            (visitor this [(-accept schema visitor in options)] in options))
+          (-properties [_] properties)
+          (-options [_] options)
+          (-children [_] children)
+          (-form [_] form)
+          LensSchema
+          (-get [_ key default] (if (= 0 key) schema default))
+          (-set [_ key value] (if (= 0 key) (into-schema :maybe properties [value]) schema)))))))
 
 (defn -map-schema []
   ^{:type ::into-schema}
@@ -1101,7 +1145,8 @@
    :string (-string-schema)
    :ref (-ref-schema)
    :schema (-schema-schema nil)
-   ::schema (-schema-schema {:raw true})})
+   ::schema (-schema-schema {:raw true})
+   ::entry (-entry-schema)})
 
 (defn default-schemas []
   (merge (predicate-schemas) (class-schemas) (comparator-schemas) (base-schemas)))
