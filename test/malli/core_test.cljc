@@ -33,13 +33,18 @@
   (is (= "jabba/abba" (m/keyword->string :jabba/abba)))
   (is (= "abba" (m/keyword->string "abba"))))
 
-(deftest expand-key-test
-  (are [schema expected]
-    (= expected (second (#'m/-expand-entry schema nil)))
-
-    [:x int?] nil
-    [:x {:optional true} int?] {:optional true}
-    [:x {:optional false} int?] {:optional false}))
+(deftest abba
+  (let [{:keys [children entries forms]} (m/-parse-entry-syntax
+                                           [[:x int?]
+                                            [:y {:optional true, :title "boolean"} boolean?]] nil)]
+    (is (= [[:x 'int?]
+            [:y {:optional true, :title "boolean"} 'boolean?]]
+           forms))
+    (is (entries= [[:x nil int?]
+                   [:y {:optional true, :title "boolean"} boolean?]]
+                  entries))
+    (is (= [nil {:optional true, :title "boolean"}]
+           (->> children (mapv (comp m/properties ::m/parent meta last)))))))
 
 (deftest eval-test
   (is (= 2 ((m/eval inc) 1)))
