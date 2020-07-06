@@ -1031,14 +1031,11 @@
                                                                  'm/children children
                                                                  'm/map-entries map-entries}})))
 
-(defn nested-properties
+(defn parent-properties
   ([?schema]
-   (nested-properties ?schema nil))
+   (parent-properties ?schema nil))
   ([?schema options]
-   (let [schema (schema ?schema options)]
-     (loop [s schema, p (-properties schema)]
-       (if-let [parent (-parent s)]
-         (recur parent (merge p (-properties parent))) p)))))
+   (some-> (schema ?schema options) (-parent) (-properties))))
 
 ;;
 ;; Visitors

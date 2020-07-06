@@ -1158,9 +1158,9 @@
       (is (true? (mu/equals schema (-> schema (m/to-map-syntax) (m/from-map-syntax))))))))
 
 (deftest nested-properties-test
-  (is (= {:summary "x", :description "foo", :title "parent"}
-         (-> (m/schema
-               [:map
-                [:x {:title "parent", :summary "x"}
-                 [:string {:summary "y", :description "foo"}]]])
-             (m/children) (last) (last) (m/nested-properties)))))
+  (let [schema (-> [:map
+                    [:x {:description "x-entry"}
+                     [:string {:description "x-value"}]]]
+                   (mu/get :x))]
+    (is (= {:description "x-value"} (m/properties schema)))
+    (is (= {:description "x-entry"} (m/parent-properties schema)))))
